@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#183d2c">
   <title>Gat Avigdor Store Map</title>
-  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3ynjGy2h4dI9W03qMZEPJpuQafm8E=" crossorigin="">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -22,7 +22,7 @@
         <span class="status-dot" id="statusDot"></span>
         <div>
           <strong id="storeCount">Loading stores…</strong>
-          <small id="fetchStatus">Reading the latest published store snapshot</small>
+          <small id="fetchStatus">Starting map…</small>
         </div>
       </div>
     </header>
@@ -60,7 +60,59 @@
     </footer>
   </main>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9coqIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="./app.js"></script>
+  <script>
+    (() => {
+      const sources = [
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      ];
+      const status = document.getElementById('fetchStatus');
+      const count = document.getElementById('storeCount');
+      const dot = document.getElementById('statusDot');
+
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+
+      async function boot() {
+        let lastError;
+        for (const src of sources) {
+          try {
+            status.textContent = `Loading map library…`;
+            await loadScript(src);
+            if (window.L) break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        if (!window.L) {
+          dot.className = 'status-dot error';
+          count.textContent = 'Map library failed to load';
+          status.textContent = 'Both Leaflet CDN sources were unavailable';
+          console.error(lastError || new Error('Leaflet unavailable'));
+          return;
+        }
+
+        status.textContent = 'Starting application…';
+        const app = document.createElement('script');
+        app.src = './app.js?v=3';
+        app.onerror = () => {
+          dot.className = 'status-dot error';
+          count.textContent = 'Application failed to start';
+          status.textContent = 'Could not load app.js';
+        };
+        document.body.appendChild(app);
+      }
+
+      boot();
+    })();
+  </script>
 </body>
 </html>
