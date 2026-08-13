@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183d2c">
+  <title>Gat Avigdor Store Map</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3ynjGy2h4dI9W03qMZEPJpuQafm8E=" crossorigin="">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">Unofficial viewer</div>
+        <h1>Gat Avigdor store map</h1>
+        <p>Click anywhere on the map to place your location. Drag the pin to fine-tune it; every loaded store is then sorted by straight-line distance.</p>
+      </div>
+      <div class="status-card" aria-live="polite">
+        <span class="status-dot" id="statusDot"></span>
+        <div>
+          <strong id="storeCount">Loading stores…</strong>
+          <small id="fetchStatus">Reading the latest published store snapshot</small>
+        </div>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="Map controls">
+      <label class="search-wrap">
+        <span>Filter stores</span>
+        <input id="storeSearch" type="search" placeholder="Name, city or address…" autocomplete="off">
+      </label>
+      <button id="fitStores" type="button">Show all stores</button>
+      <button id="clearLocation" type="button" class="secondary" disabled>Clear my pin</button>
+      <button id="refreshStores" type="button" class="secondary">Reload store data</button>
+    </section>
+
+    <section class="workspace">
+      <div class="map-panel">
+        <div id="map" aria-label="Interactive map of Gat Avigdor stores"></div>
+        <div class="map-tip" id="mapTip">Click the map to place your location</div>
+      </div>
+
+      <aside class="results-panel">
+        <div class="results-head">
+          <div>
+            <h2 id="resultsTitle">All stores</h2>
+            <p id="resultsSubtitle">Place your pin to sort by distance.</p>
+          </div>
+          <div class="location-chip" id="locationChip" hidden></div>
+        </div>
+        <div id="results" class="results" aria-live="polite"></div>
+      </aside>
+    </section>
+
+    <footer>
+      <p>Store information is refreshed automatically from Gat Avigdor’s public store-locator endpoint. Map tiles © OpenStreetMap contributors. This site is not affiliated with Gat Avigdor.</p>
+    </footer>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9coqIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="./app.js"></script>
+</body>
+</html>
