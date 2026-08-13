@@ -6,17 +6,12 @@ import { chromium } from 'playwright-core';
 const LOCATOR_PAGE = 'https://gatavigdor.co.il/where-gat/';
 const OUTPUT = process.argv[2] || 'site/stores.json';
 const MAP_ID = '2678';
-const RADIUS_KM = '500';
+const RADIUS_KM = '25';
 
-// Widely separated probe points. A 500 km radius should already cover Israel
-// from a central probe, but multiple origins give us a completeness check and
-// protect against any undocumented server-side clipping.
-const PROBES = [
-  { name: 'Tel Aviv', lat: 32.0853, lng: 34.7818 },
-  { name: 'Haifa', lat: 32.7940, lng: 34.9896 },
-  { name: 'Jerusalem', lat: 31.7683, lng: 35.2137 },
-  { name: 'Beersheba', lat: 31.2529, lng: 34.7915 },
-  { name: 'Eilat', lat: 29.5577, lng: 34.9519 },
+// Match the two searches requested for now.
+const SEARCHES = [
+  { name: 'תל אביב', lat: 32.0853, lng: 34.7818 },
+  { name: 'חיפה', lat: 32.7940, lng: 34.9896 },
 ];
 
 function findChrome() {
@@ -82,9 +77,6 @@ function storeFromLocation(location) {
 }
 
 function parseLocationsFromHtml(html) {
-  // WP Multi Store Locator Pro returns HTML containing:
-  //   var locations = {"center":...,"locations":[...]};
-  // Capture the JSON object up to the semicolon immediately after it.
   const match = String(html).match(/var\s+locations\s*=\s*(\{[\s\S]*?\})\s*;/i);
   if (!match) throw new Error(`Could not find locations JSON in locator response: ${String(html).slice(0, 240).replace(/\s+/g, ' ')}`);
 
@@ -100,9 +92,6 @@ function parseLocationsFromHtml(html) {
 }
 
 function keyFor(store) {
-  // The AJAX map payload does not expose the WordPress post ID, so use stable
-  // source coordinates + normalized name. This safely collapses the same store
-  // returned by multiple probe locations without merging distinct nearby shops.
   return `${store.lat.toFixed(6)},${store.lng.toFixed(6)}|${store.store.trim().toLocaleLowerCase()}`;
 }
 
@@ -117,19 +106,11 @@ function dedupe(groups) {
   return [...map.values()].map((store, index) => ({ ...store, id: `store-${index + 1}` }));
 }
 
-function sameSet(a, b) {
-  const sa = new Set(a.map(keyFor));
-  const sb = new Set(b.map(keyFor));
-  if (sa.size !== sb.size) return false;
-  for (const key of sa) if (!sb.has(key)) return false;
-  return true;
-}
-
-async function queryLocator(page, probe) {
-  const result = await page.evaluate(async ({ lat, lng, radius, mapId }) => {
+async function queryLocator(page, search) {
+  const result = await page.evaluate(async ({ name, lat, lng, radius, mapId }) => {
     const params = new URLSearchParams({
       action: 'make_search_request_custom_maps',
-      store_locatore_search_input: '',
+      store_locatore_search_input: name,
       store_locatore_search_radius: radius,
       store_locator_category: '',
       store_locatore_search_lat: String(lat),
@@ -151,11 +132,11 @@ async function queryLocator(page, probe) {
     });
 
     return { status: response.status, text: await response.text() };
-  }, { lat: probe.lat, lng: probe.lng, radius: RADIUS_KM, mapId: MAP_ID });
+  }, { name: search.name, lat: search.lat, lng: search.lng, radius: RADIUS_KM, mapId: MAP_ID });
 
-  if (result.status !== 200) throw new Error(`${probe.name} locator request returned HTTP ${result.status}`);
+  if (result.status !== 200) throw new Error(`${search.name} locator request returned HTTP ${result.status}`);
   const stores = parseLocationsFromHtml(result.text);
-  console.log(`${probe.name} (${probe.lat},${probe.lng}) radius ${RADIUS_KM} km: ${stores.length} stores`);
+  console.log(`${search.name}, radius ${RADIUS_KM} km: ${stores.length} stores`);
   return stores;
 }
 
@@ -173,31 +154,26 @@ async function main() {
   const page = await context.newPage();
 
   try {
-    // Load the real page first so the AJAX request runs in the same origin and
-    // carries the same browser session/cookies as the working locator.
     await page.goto(LOCATOR_PAGE, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(5000);
 
     const groups = [];
-    for (const probe of PROBES) {
-      groups.push(await queryLocator(page, probe));
-    }
+    for (const search of SEARCHES) groups.push(await queryLocator(page, search));
 
     const stores = dedupe(groups);
     if (!stores.length) throw new Error('The live locator returned no stores');
 
-    const allProbeSetsMatch = groups.every(group => sameSet(groups[0], group));
-    const perProbeCounts = Object.fromEntries(PROBES.map((probe, i) => [probe.name, groups[i].length]));
+    const perSearchCounts = Object.fromEntries(SEARCHES.map((search, i) => [search.name, groups[i].length]));
+    const rawTotal = groups.reduce((sum, group) => sum + group.length, 0);
+    const overlapCount = rawTotal - stores.length;
 
     const payload = {
       ok: true,
       count: stores.length,
       stores,
-      retrieval: 'wp-multi-store-locator-pro-500km-union',
-      completenessCheck: allProbeSetsMatch
-        ? `All ${PROBES.length} geographically separated 500 km probes returned the same ${stores.length} stores.`
-        : `The ${PROBES.length} 500 km probes differed, so all results were unioned and deduplicated; ${stores.length} unique stores remain.`,
-      perProbeCounts,
+      retrieval: 'tel-aviv-haifa-25km-union',
+      completenessCheck: `Snapshot intentionally contains only the 25 km תל אביב and חיפה searches. ${overlapCount} duplicate result(s) overlapped between the two searches.`,
+      perSearchCounts,
       fetchedAt: new Date().toISOString(),
       source: LOCATOR_PAGE,
     };
@@ -205,8 +181,7 @@ async function main() {
     await fs.mkdir(path.dirname(OUTPUT), { recursive: true });
     await fs.writeFile(OUTPUT, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     console.log(`Wrote ${stores.length} unique stores to ${OUTPUT}`);
-    console.log(payload.completenessCheck);
-    console.log(`Per-probe counts: ${JSON.stringify(perProbeCounts)}`);
+    console.log(`Per-search counts: ${JSON.stringify(perSearchCounts)}; overlap=${overlapCount}`);
   } finally {
     await browser.close();
   }
