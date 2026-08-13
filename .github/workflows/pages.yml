@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
 
 permissions:
   contents: read
@@ -26,6 +28,19 @@ jobs:
           rm -rf _site
           mkdir -p _site
           cp -R site/. _site/
+
+      - name: Install browser scraper dependency
+        run: npm install --no-save playwright-core@1.55.0
+
+      - name: Refresh Gat store data in a real browser session
+        continue-on-error: true
+        run: node scripts/fetch-stores-browser.mjs _site/stores.json
+
+      - name: Ensure a valid data file always exists
+        run: |
+          if [ ! -f _site/stores.json ]; then
+            printf '%s\n' '{"ok":false,"count":0,"stores":[],"error":"Live store refresh failed. Try Reload store data in the browser.","fetchedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' > _site/stores.json
+          fi
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
