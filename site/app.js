@@ -18,7 +18,6 @@
   const storeLayer = L.layerGroup().addTo(map);
   let stores = [], userLocation = null, userMarker = null, activeId = null;
   const markers = new Map();
-  const PROBES = [[31.55,34.78],[32.08,34.79],[32.82,34.99],[30.66,34.80],[33.00,35.50]];
 
   const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const addressFor = s => [s.address,s.address2,s.city,s.zip].filter(Boolean).join(', ');
@@ -27,20 +26,6 @@
 
   function normalize(s){const lat=Number(s.lat),lng=Number(s.lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))return null;return {id:String(s.id??''),lat,lng,store:s.store||s.name||'Unnamed store',address:s.address||'',address2:s.address2||'',city:s.city||'',zip:s.zip||'',phone:s.phone||''};}
   function dedupe(groups){const m=new Map();for(const g of groups)for(const raw of g||[]){const s=normalize(raw);if(!s)continue;const k=s.id||`${s.lat},${s.lng},${s.store}`;m.set(k,{...(m.get(k)||{}),...s});}return [...m.values()];}
-
-  function targetUrl(lat,lng){const u=new URL('https://gatavigdor.co.il/wp-admin/admin-ajax.php');u.searchParams.set('action','store_search');u.searchParams.set('lat',lat);u.searchParams.set('lng',lng);u.searchParams.set('max_results','1000');u.searchParams.set('radius','1000');u.searchParams.set('autoload','1');return u.href;}
-  async function tryJson(url, timeoutMs=15000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeoutMs);try{const r=await fetch(url,{cache:'no-store',signal:c.signal});const text=await r.text();if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=JSON.parse(text);if(!Array.isArray(data))throw new Error('Unexpected response');return data;}finally{clearTimeout(t);}}
-  async function queryStores(lat,lng){
-    const target=targetUrl(lat,lng);
-    const attempts=[
-      ['direct',target],
-      ['AllOrigins',`https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`],
-      ['CORSProxy',`https://corsproxy.io/?url=${encodeURIComponent(target)}`],
-    ];
-    const errors=[];
-    for(const [name,url] of attempts){try{return {data:await tryJson(url),via:name};}catch(e){errors.push(`${name}: ${e.message}`);}}
-    throw new Error(errors.join(' · '));
-  }
 
   function popupHtml(s){const a=addressFor(s),dest=`${s.lat},${s.lng}`,dir=`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`,tel=s.phone?`tel:${s.phone.replace(/[^+\d]/g,'')}`:'';return `<div class="popup-title" dir="auto">${esc(s.store)}</div>${a?`<div class="popup-address" dir="auto">${esc(a)}</div>`:''}${s.phone?`<div class="popup-meta" dir="auto">${esc(s.phone)}</div>`:''}${Number.isFinite(s._distance)?`<div class="popup-meta">${esc(formatDistance(s._distance))} from your pin</div>`:''}<div class="popup-actions"><a href="${dir}" target="_blank" rel="noopener">Directions</a>${tel?`<a href="${tel}">Call</a>`:''}</div>`;}
 
@@ -52,7 +37,41 @@
   function clearUserLocation(){userLocation=null;if(userMarker){map.removeLayer(userMarker);userMarker=null;}els.clearLocation.disabled=true;els.mapTip.textContent='Click the map to place your location';els.resultsTitle.textContent='All stores';els.resultsSubtitle.textContent='Place your pin to sort by distance.';els.locationChip.hidden=true;activeId=null;renderResults();}
   function fitAllStores(){if(stores.length)map.fitBounds(L.latLngBounds(stores.map(s=>[s.lat,s.lng])).pad(.1),{maxZoom:11});}
 
-  async function loadStores(){els.statusDot.className='status-dot';els.storeCount.textContent='Loading stores…';els.fetchStatus.textContent='Trying Gat Avigdor and fallback relays';els.refreshStores.disabled=true;try{const groups=[],via=new Set();for(const [lat,lng] of PROBES){const r=await queryStores(lat,lng);groups.push(r.data);via.add(r.via);}stores=dedupe(groups);if(!stores.length)throw new Error('No stores returned');els.statusDot.className='status-dot ok';els.storeCount.textContent=`${stores.length} stores loaded`;els.fetchStatus.textContent=`Live data via ${[...via].join(', ')}`;rebuildMarkers();renderResults();fitAllStores();}catch(e){console.error(e);els.statusDot.className='status-dot error';els.storeCount.textContent='Could not load stores';els.fetchStatus.textContent=e.message;els.results.innerHTML=`<div class="empty">Could not read the source locator.<br>${esc(e.message)}</div>`;}finally{els.refreshStores.disabled=false;}}
+  async function loadStores(){
+    els.statusDot.className='status-dot';
+    els.storeCount.textContent='Loading stores…';
+    els.fetchStatus.textContent='Reading published store snapshot';
+    els.refreshStores.disabled=true;
+    try{
+      const response=await fetch(`./stores.json?ts=${Date.now()}`,{cache:'no-store'});
+      if(!response.ok)throw new Error(`stores.json returned HTTP ${response.status}`);
+      const payload=await response.json();
+      const rows=Array.isArray(payload)?payload:(Array.isArray(payload.stores)?payload.stores:[]);
+      stores=dedupe([rows]);
+      if(!stores.length)throw new Error(payload.error||'stores.json contains no stores');
+      els.statusDot.className='status-dot ok';
+      els.storeCount.textContent=`${stores.length} stores loaded`;
+      let detail='Published snapshot';
+      if(payload.fetchedAt){const d=new Date(payload.fetchedAt);if(!Number.isNaN(d.getTime()))detail+=` · updated ${d.toLocaleString()}`;}
+      els.fetchStatus.textContent=detail;
+      rebuildMarkers();
+      renderResults();
+      fitAllStores();
+    }catch(e){
+      console.error(e);
+      els.statusDot.className='status-dot error';
+      els.storeCount.textContent='Could not load stores';
+      els.fetchStatus.textContent=e.message;
+      els.results.innerHTML=`<div class="empty">Could not read stores.json.<br>${esc(e.message)}</div>`;
+    }finally{
+      els.refreshStores.disabled=false;
+    }
+  }
 
-  map.on('click',e=>setUserLocation(e.latlng));els.storeSearch.addEventListener('input',renderResults);els.fitStores.addEventListener('click',fitAllStores);els.clearLocation.addEventListener('click',clearUserLocation);els.refreshStores.addEventListener('click',loadStores);loadStores();
+  map.on('click',e=>setUserLocation(e.latlng));
+  els.storeSearch.addEventListener('input',renderResults);
+  els.fitStores.addEventListener('click',fitAllStores);
+  els.clearLocation.addEventListener('click',clearUserLocation);
+  els.refreshStores.addEventListener('click',loadStores);
+  loadStores();
 })();
