@@ -70,22 +70,30 @@ async function gatQuery(lat, lng) {
   url.searchParams.set('action', 'store_search');
   url.searchParams.set('lat', String(lat));
   url.searchParams.set('lng', String(lng));
+  // Match the parameters sent by WP Store Locator's own frontend. Autoload
+  // requests are not radius-limited by the plugin, but including these keeps
+  // the request shape compatible with site/security validation layers.
+  url.searchParams.set('max_results', '1000');
+  url.searchParams.set('search_radius', '1000');
   url.searchParams.set('autoload', '1');
-  url.searchParams.set('skip_cache', '1');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 GatStoreMap/1.0 (+https://github.com/MortyKombat/gat-store-map)',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/145.0 Safari/537.36',
         'Accept': 'application/json,text/plain,*/*',
+        'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8',
         'Referer': 'https://gatavigdor.co.il/where-gat/',
       },
       signal: controller.signal,
     });
 
-    if (!response.ok) throw new Error(`Gat Avigdor returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`Gat Avigdor returned HTTP ${response.status}${body ? `: ${body.slice(0, 180)}` : ''}`);
+    }
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); }
