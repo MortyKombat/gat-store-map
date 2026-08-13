@@ -1,11 +1,9 @@
-name: Refresh stores and deploy Pages
+name: Deploy Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '17 */6 * * *'
 
 permissions:
   contents: read
@@ -14,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -28,7 +26,6 @@ jobs:
           rm -rf _site
           mkdir -p _site
           cp -R site/. _site/
-          node scripts/fetch-stores.mjs _site/stores.json
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
